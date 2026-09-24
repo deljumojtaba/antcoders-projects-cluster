@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - scrapes.yaml
   - uptime-kuma.yaml
+  - routes.yaml

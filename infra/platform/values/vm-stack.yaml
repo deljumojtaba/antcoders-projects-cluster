@@ -67,6 +67,9 @@ grafana:
     enabled: true
     storageClassName: local-path
     size: 1Gi
+  grafana.ini:
+    server:
+      root_url: https://grafana.antcoders.dev
   resources:
     requests: { cpu: 20m, memory: 128Mi }
     limits: { memory: 256Mi }

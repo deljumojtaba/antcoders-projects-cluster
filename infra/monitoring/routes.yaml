@@ -1,0 +1,31 @@
+# Web access to the monitoring tools, for you only.
+#
+# Three locks, in order:
+#   1. Cloudflare Access (Zero Trust -> Access -> Applications) asks for a
+#      one-time email code before any request reaches the cluster.
+#   2. cloudflare-only: the cluster refuses these hosts unless the request
+#      came through Cloudflare, so Access cannot be bypassed via the LB IP.
+#   3. Grafana and Uptime Kuma still require their own login.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: monitoring
+  namespace: monitoring
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`grafana.antcoders.dev`)
+      kind: Rule
+      middlewares:
+        - { name: cloudflare-only, namespace: traefik }
+        - { name: security-headers, namespace: traefik }
+      services:
+        - { name: vm-grafana, port: 80 }
+    - match: Host(`status.antcoders.dev`)
+      kind: Rule
+      middlewares:
+        - { name: cloudflare-only, namespace: traefik }
+        - { name: security-headers, namespace: traefik }
+      services:
+        - { name: uptime-kuma, port: 3001 }
+  tls: {}
