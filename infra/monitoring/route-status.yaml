@@ -1,0 +1,19 @@
+# Uptime Kuma on status.antcoders.dev. NOT in the kustomization yet: add it
+# (resources: - route-status.yaml) only after Cloudflare Access protects
+# status.antcoders.dev, because an Uptime Kuma login page should not be public.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: status
+  namespace: monitoring
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`status.antcoders.dev`)
+      kind: Rule
+      middlewares:
+        - { name: cloudflare-only, namespace: traefik }
+        - { name: security-headers, namespace: traefik }
+      services:
+        - { name: uptime-kuma, port: 3001 }
+  tls: {}

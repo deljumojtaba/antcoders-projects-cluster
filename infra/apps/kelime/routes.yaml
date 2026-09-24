@@ -1,7 +1,9 @@
+# One IngressRoute per site: Traefik puts the IngressRoute name into its metric
+# labels, so Grafana can show "kelime-api" instead of a hash.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
-  name: kelime
+  name: kelime-api
   namespace: game
 spec:
   entryPoints: [websecure]
@@ -11,12 +13,32 @@ spec:
       kind: Rule
       services:
         - { name: kelime-service, port: 8080 }
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: kelime-website
+  namespace: game
+spec:
+  entryPoints: [websecure]
+  routes:
     - match: Host(`kelimesavasi.app`) || Host(`www.kelimesavasi.app`)
       kind: Rule
       middlewares:
         - { name: compress, namespace: traefik }
       services:
         - { name: kelime-website, port: 80 }
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: kelime-admin
+  namespace: game
+spec:
+  entryPoints: [websecure]
+  routes:
     - match: Host(`admin.kelimesavasi.app`)
       kind: Rule
       middlewares:

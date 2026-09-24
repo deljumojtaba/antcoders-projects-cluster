@@ -4,3 +4,20 @@ resources:
   - scrapes.yaml
   - uptime-kuma.yaml
   - routes.yaml
+
+# Dashboards: Grafana's sidecar loads every ConfigMap labelled
+# grafana_dashboard=1. Edit the JSON here (or export from Grafana) and apply.
+configMapGenerator:
+  - name: dashboard-antcoders-overview
+    namespace: monitoring
+    files: [dashboards/antcoders-overview.json]
+  - name: dashboard-traefik
+    namespace: monitoring
+    files: [dashboards/traefik.json]
+  - name: dashboard-cnpg
+    namespace: monitoring
+    files: [dashboards/cnpg.json]
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    grafana_dashboard: "1"
