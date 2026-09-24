@@ -4,6 +4,7 @@ resources:
   - scrapes.yaml
   - uptime-kuma.yaml
   - routes.yaml
+  - route-status.yaml    # Cloudflare Access protects status.antcoders.dev since 2026-09-24
 
 # Dashboards: Grafana's sidecar loads every ConfigMap labelled
 # grafana_dashboard=1. Edit the JSON here (or export from Grafana) and apply.
