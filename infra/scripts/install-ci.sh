@@ -26,7 +26,9 @@ if want kelime-savasi; then
 echo "==> kelime-savasi"
 R="$ROOT/kelime-savasi"; check_repo "$R"
 copy "$INFRA/ci/kelime-savasi/k8s-backend.yml" "$R/.github/workflows/k8s-backend.yml"
-copy "$INFRA/ci/kelime-savasi/k8s-sites.yml"   "$R/.github/workflows/k8s-sites.yml"
+copy "$INFRA/ci/kelime-savasi/k8s-website.yml" "$R/.github/workflows/k8s-website.yml"
+copy "$INFRA/ci/kelime-savasi/k8s-admin.yml"   "$R/.github/workflows/k8s-admin.yml"
+rm -f "$R/.github/workflows/k8s-sites.yml"   # replaced by the two above
 for f in Dockerfile nginx.conf; do
   copy "$INFRA/images/kelime-website/$f" "$R/deploy/k8s/kelime-website/$f"
   copy "$INFRA/images/kelime-admin/$f"   "$R/deploy/k8s/kelime-admin/$f"
@@ -38,7 +40,9 @@ if want kinmemo; then
 echo "==> kinmemo"
 R="$ROOT/kinmemo"; check_repo "$R"
 copy "$INFRA/ci/kinmemo/k8s-backend.yml" "$R/.github/workflows/k8s-backend.yml"
-copy "$INFRA/ci/kinmemo/k8s-sites.yml"   "$R/.github/workflows/k8s-sites.yml"
+copy "$INFRA/ci/kinmemo/k8s-website.yml" "$R/.github/workflows/k8s-website.yml"
+copy "$INFRA/ci/kinmemo/k8s-admin.yml"   "$R/.github/workflows/k8s-admin.yml"
+rm -f "$R/.github/workflows/k8s-sites.yml"   # replaced by the two above
 copy "$INFRA/apps/kinmemo/migrate-job.yaml" "$R/deploy/k8s/migrate-job.yaml"
 for f in Dockerfile nginx.conf security.conf; do
   copy "$INFRA/images/kinmemo-site/$f" "$R/deploy/k8s/kinmemo-site/$f"

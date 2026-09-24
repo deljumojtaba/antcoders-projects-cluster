@@ -1,0 +1,55 @@
+# admin.kinmemo.app (static files). Deploys ONLY when admin/ (or its Dockerfile) changes; the website
+# and the API and worker are never touched. Rolling update, no downtime.
+name: k8s-admin
+
+on:
+  push:
+    branches: [master]
+    paths: ["admin/**", "deploy/k8s/kinmemo-admin/**", ".github/workflows/k8s-admin.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/deljumojtaba/kinmemo-admin
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    concurrency: kinmemo-admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/k8s/kinmemo-admin/Dockerfile
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
+          push: true
+          tags: ${{ env.IMAGE }}:${{ github.sha }},${{ env.IMAGE }}:latest
+          cache-from: type=gha,scope=kinmemo-admin
+          cache-to: type=gha,mode=max,scope=kinmemo-admin
+      - name: Deploy
+        env:
+          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_CI }}
+        run: |
+          echo "$KUBECONFIG_DATA" > "$RUNNER_TEMP/kubeconfig"
+          export KUBECONFIG="$RUNNER_TEMP/kubeconfig"
+          kubectl -n kinmemo set image deployment/kinmemo-admin nginx="$IMAGE:$GITHUB_SHA"
+          kubectl -n kinmemo rollout status deployment/kinmemo-admin --timeout=5m
+      # Keeps the last 10 images (room for rollbacks); older ones are deleted from GHCR.
+      - name: Delete old images
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: kinmemo-admin
+          package-type: container
+          min-versions-to-keep: 10

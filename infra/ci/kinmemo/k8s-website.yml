@@ -1,25 +1,24 @@
-# kinmemo.app and admin.kinmemo.app static files. Rolling update, no downtime.
-name: k8s-sites
+# kinmemo.app. Deploys ONLY when website/ (or its Dockerfile) changes; the admin dashboard
+# and the API and worker are never touched. Rolling update, no downtime.
+name: k8s-website
 
 on:
   push:
     branches: [master]
-    paths: ["website/**", "admin/**", "deploy/k8s/kinmemo-site/**", "deploy/k8s/kinmemo-admin/**"]
+    paths: ["website/**", "deploy/k8s/kinmemo-site/**", ".github/workflows/k8s-website.yml"]
   workflow_dispatch:
 
 permissions:
   contents: read
   packages: write
 
+env:
+  IMAGE: ghcr.io/deljumojtaba/kinmemo-site
+
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        site: [kinmemo-site, kinmemo-admin]
-    concurrency: ${{ matrix.site }}
-    env:
-      IMAGE: ghcr.io/deljumojtaba/${{ matrix.site }}
+    concurrency: kinmemo-site
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -31,24 +30,26 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: deploy/k8s/${{ matrix.site }}/Dockerfile
+          file: deploy/k8s/kinmemo-site/Dockerfile
           platforms: linux/amd64
           provenance: false
           sbom: false
           push: true
           tags: ${{ env.IMAGE }}:${{ github.sha }},${{ env.IMAGE }}:latest
+          cache-from: type=gha,scope=kinmemo-site
+          cache-to: type=gha,mode=max,scope=kinmemo-site
       - name: Deploy
         env:
           KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_CI }}
         run: |
           echo "$KUBECONFIG_DATA" > "$RUNNER_TEMP/kubeconfig"
           export KUBECONFIG="$RUNNER_TEMP/kubeconfig"
-          kubectl -n kinmemo set image deployment/${{ matrix.site }} nginx="$IMAGE:$GITHUB_SHA"
-          kubectl -n kinmemo rollout status deployment/${{ matrix.site }} --timeout=5m
+          kubectl -n kinmemo set image deployment/kinmemo-site nginx="$IMAGE:$GITHUB_SHA"
+          kubectl -n kinmemo rollout status deployment/kinmemo-site --timeout=5m
       # Keeps the last 10 images (room for rollbacks); older ones are deleted from GHCR.
       - name: Delete old images
         uses: actions/delete-package-versions@v5
         with:
-          package-name: ${{ matrix.site }}
+          package-name: kinmemo-site
           package-type: container
           min-versions-to-keep: 10
