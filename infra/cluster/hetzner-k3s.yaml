@@ -24,7 +24,7 @@ networking:
       # From anywhere else: connect to the VPN first.
       - 213.14.134.231/32   # office
       - 3.70.169.152/32     # VPN
-      # - HOME.IP/32        # home
+      - 78.189.87.67/32     # added 2026-09-24
     api:
       # GitHub Actions deploys through the API, and its runner IPs are not
       # stable, so 6443 stays open. It is still protected by client certs /
