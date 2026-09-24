@@ -253,6 +253,11 @@ was DNS-only (grey cloud), turn the proxy on.
 
 #### 6c. Kelime Savaşı (week 4, 04:00–06:00 Istanbul)
 
+**Use `scripts/cutover-kelime.sh`.** It runs the steps below in order, checks each
+one, and stops on the first problem: `check` (read-only), `switch` (~5 min
+downtime), then Cloudflare DNS, then `verify`. `rollback` restarts the old
+service after DNS points back. The manual steps below are kept as reference.
+
 Get the **server's** config, because the admin panel has edited it:
 
 ```bash
