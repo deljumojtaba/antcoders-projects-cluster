@@ -1,0 +1,409 @@
+# Alert rules (Grafana-managed), loaded by Grafana's alerts sidecar.
+# "$1" is an escaped "$1": Grafana expands $VARS in provisioning files.
+apiVersion: 1
+groups:
+- orgId: 1
+  name: sites
+  folder: Antcoders alerts
+  interval: 1m
+  rules:
+  - uid: site-5xx
+    title: Site returning errors
+    condition: C
+    for: 5m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      severity: critical
+    annotations:
+      summary: '{{ $labels.site }}: {{ $values.A }} server errors (5xx) in 5 min'
+      description: 'Users are getting errors. Check the app''s logs: kac -n <namespace> logs deploy/<app>'
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: VictoriaMetrics
+      model:
+        refId: A
+        expr: sum by (site) (label_replace(increase(traefik_router_requests_total{code=~"5.."}[5m]), "site", "$1", "router", "[a-z]+-(.+)-[0-9a-f]{20}@kubernetescrd"))
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: VictoriaMetrics
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 10
+  - uid: site-slow
+    title: Site slow
+    condition: C
+    for: 10m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.site }}: 95% of requests take up to {{ $values.A }} s'
+      description: Response time over 1 s for 10 minutes. See the Antcoders overview dashboard.
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: VictoriaMetrics
+      model:
+        refId: A
+        expr: histogram_quantile(0.95, sum by (le, site) (label_replace(rate(traefik_router_request_duration_seconds_bucket[5m]), "site", "$1", "router", "[a-z]+-(.+)-[0-9a-f]{20}@kubernetescrd")))
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: VictoriaMetrics
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 1
+  - uid: site-404-spike
+    title: Many 404s
+    condition: C
+    for: 15m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.site }}: {{ $values.A }} not-found (404) responses in the last hour'
+      description: A broken link or a missing page after a deploy. See '404s by site' in the Antcoders overview.
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: VictoriaMetrics
+      model:
+        refId: A
+        expr: sum by (site) (label_replace(increase(traefik_router_requests_total{code="404"}[1h]), "site", "$1", "router", "[a-z]+-(.+)-[0-9a-f]{20}@kubernetescrd"))
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: VictoriaMetrics
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 500
+- orgId: 1
+  name: servers
+  folder: Antcoders alerts
+  interval: 1m
+  rules:
+  - uid: node-down
+    title: Server not reporting
+    condition: C
+    for: 2m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      severity: critical
+    annotations:
+      summary: '{{ $labels.nodename }} is not reporting'
+      description: The server may be down. Its pods move to the other two nodes automatically; check the Hetzner console.
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: VictoriaMetrics
+      model:
+        refId: A
+        expr: up{job="node-exporter"} * on(instance) group_left(nodename) node_uname_info
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: VictoriaMetrics
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 1
+  - uid: node-disk
+    title: Server disk filling up
+    condition: C
+    for: 10m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.nodename }} disk is {{ humanizePercentage $values.A.Value }} full'
+      description: Over 80%. Databases and metrics live on this disk.
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: VictoriaMetrics
+      model:
+        refId: A
+        expr: (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * on(instance) group_left(nodename) node_uname_info
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: VictoriaMetrics
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0.8
+  - uid: node-memory
+    title: Server memory high
+    condition: C
+    for: 10m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.nodename }} memory is {{ humanizePercentage $values.A.Value }} used'
+      description: Over 90% for 10 minutes. Pods may start being evicted (monitoring first, the game last).
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: VictoriaMetrics
+      model:
+        refId: A
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * on(instance) group_left(nodename) node_uname_info
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: VictoriaMetrics
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0.9
+  - uid: pod-restarts
+    title: App restarting
+    condition: C
+    for: 0s
+    noDataState: OK
+    execErrState: Error
+    labels:
+      severity: critical
+    annotations:
+      summary: '{{ $labels.namespace }}/{{ $labels.pod }} restarted {{ $values.A }} times in 15 min'
+      description: 'Crash loop. Check: kac -n {{ $labels.namespace }} logs {{ $labels.pod }} --previous'
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: VictoriaMetrics
+      model:
+        refId: A
+        expr: sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total[15m]))
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: VictoriaMetrics
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 3
+- orgId: 1
+  name: databases
+  folder: Antcoders alerts
+  interval: 5m
+  rules:
+  - uid: backup-missed
+    title: Database backup missed
+    condition: C
+    for: 30m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      severity: critical
+    annotations:
+      summary: No full backup of the '{{ $labels.namespace }}' databases for {{ $values.A }} hours
+      description: 'Nightly backups to R2 run at 03:00/03:30 UTC. Check: kac get backup -A'
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: VictoriaMetrics
+      model:
+        refId: A
+        expr: (time() - max by (namespace) (barman_cloud_cloudnative_pg_io_last_available_backup_timestamp > 0)) / 3600
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: VictoriaMetrics
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 26
+  - uid: wal-archive-failing
+    title: Continuous backup failing
+    condition: C
+    for: 15m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      severity: critical
+    annotations:
+      summary: '{{ $labels.pod }} cannot ship changes to R2'
+      description: WAL archiving to R2 is failing (credentials, bucket or network). Point-in-time recovery is at risk.
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: VictoriaMetrics
+      model:
+        refId: A
+        expr: sum by (namespace, pod) (increase(cnpg_pg_stat_archiver_failed_count[15m]))
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: VictoriaMetrics
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+  - uid: replication-lag
+    title: Database replica behind
+    condition: C
+    for: 5m
+    noDataState: OK
+    execErrState: Error
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.pod }} is {{ $values.A }} s behind its primary'
+      description: A failover now would lose that much recent data.
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: VictoriaMetrics
+      model:
+        refId: A
+        expr: max by (pod) (cnpg_pg_replication_lag)
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: VictoriaMetrics
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 60

@@ -1,0 +1,12 @@
+# Telegram contact point for Grafana alerts. Applied by scripts/set-telegram.sh
+# AFTER the grafana-telegram secret exists: Grafana rejects a Telegram contact
+# point without a token, and one rejected file blocks reloading all alerting.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+configMapGenerator:
+  - name: grafana-alert-telegram
+    namespace: monitoring
+    files: [telegram.yaml]
+    options: { labels: { grafana_alert: "1" } }
+generatorOptions:
+  disableNameSuffixHash: true

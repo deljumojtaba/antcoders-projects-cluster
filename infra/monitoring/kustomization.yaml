@@ -12,13 +12,21 @@ configMapGenerator:
   - name: dashboard-antcoders-overview
     namespace: monitoring
     files: [dashboards/antcoders-overview.json]
+    options: { labels: { grafana_dashboard: "1" } }
   - name: dashboard-traefik
     namespace: monitoring
     files: [dashboards/traefik.json]
+    options: { labels: { grafana_dashboard: "1" } }
   - name: dashboard-cnpg
     namespace: monitoring
     files: [dashboards/cnpg.json]
+    options: { labels: { grafana_dashboard: "1" } }
+  # Alert rules + Telegram contact point, loaded by Grafana's alerts sidecar.
+  - name: grafana-alert-rules
+    namespace: monitoring
+    files: [alerts/rules.yaml]
+    options: { labels: { grafana_alert: "1" } }
+  # The Telegram contact point lives in monitoring/telegram/ and is applied by
+  # scripts/set-telegram.sh once the bot secret exists.
 generatorOptions:
   disableNameSuffixHash: true
-  labels:
-    grafana_dashboard: "1"

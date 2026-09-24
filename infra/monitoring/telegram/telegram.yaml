@@ -1,0 +1,27 @@
+# Telegram contact point + routing. The bot token and chat id come from the
+# grafana-telegram secret (scripts/set-telegram.sh). Until that secret exists
+# Grafana rejects this file (a Telegram contact point needs a token), which is
+# why it is separate from rules.yaml: the rules keep working either way.
+apiVersion: 1
+contactPoints:
+- orgId: 1
+  name: telegram
+  receivers:
+  - uid: telegram
+    type: telegram
+    disableResolveMessage: false
+    settings:
+      bottoken: ${TELEGRAM_BOT_TOKEN}
+      chatid: ${TELEGRAM_CHAT_ID}
+      parse_mode: HTML
+policies:
+- orgId: 1
+  receiver: telegram
+  group_by:
+  - alertname
+  - site
+  - nodename
+  - namespace
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h

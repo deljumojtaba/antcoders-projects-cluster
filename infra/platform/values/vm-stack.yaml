@@ -70,6 +70,19 @@ grafana:
   grafana.ini:
     server:
       root_url: https://grafana.antcoders.dev
+  # Alerting is provisioned from ConfigMaps labelled grafana_alert=1
+  # (monitoring/alerts/). The Telegram bot comes from the grafana-telegram
+  # secret (scripts/set-telegram.sh); optional, so Grafana starts without it.
+  sidecar:
+    alerts:
+      enabled: true
+      label: grafana_alert
+      labelValue: "1"
+  envValueFrom:
+    TELEGRAM_BOT_TOKEN:
+      secretKeyRef: { name: grafana-telegram, key: TELEGRAM_BOT_TOKEN, optional: true }
+    TELEGRAM_CHAT_ID:
+      secretKeyRef: { name: grafana-telegram, key: TELEGRAM_CHAT_ID, optional: true }
   resources:
     requests: { cpu: 20m, memory: 128Mi }
     limits: { memory: 256Mi }
