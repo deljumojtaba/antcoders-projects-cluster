@@ -84,11 +84,11 @@ metadata:
   namespace: kinmemo
   labels: { app: kinmemo-worker }
 spec:
-  # 0 until the migration switch. The worker sends push notifications, reminders
-  # and emails from the job queue in the database; running it here while the old
-  # server's worker still runs would send every notification twice. Set to 1 in
-  # the same step that stops the old worker.
-  replicas: 0
+  # The worker sends push notifications, reminders and emails from the job
+  # queue. Only ONE place may run it: never start a worker elsewhere (old
+  # server, local dev against prod) while this one runs, or users get every
+  # notification twice. Switched over from the old server on 2026-09-24.
+  replicas: 1
   strategy: { type: Recreate }
   selector:
     matchLabels: { app: kinmemo-worker }

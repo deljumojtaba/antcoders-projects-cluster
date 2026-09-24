@@ -239,6 +239,13 @@ PGPASSWORD=$(kubectl -n data get secret pg-apps-superuser -o jsonpath='{.data.pa
 kubectl -n kinmemo rollout restart deploy/kinmemo-api deploy/kinmemo-worker
 ```
 
+Before deleting the old Kinmemo server, download its backups (not in the cluster):
+
+```bash
+ssh -i ~/.ssh/antcoders_deploy root@5.75.135.98 \
+  'tar czf - -C /opt/kinmemo backups pre-baseline-20260805-0456.sql.gz .env.bak.1785782787 .env.bak.domain-cutover-1785921364' > kinmemo-server-backups.tgz
+```
+
 Run Kinmemo's RLS test suite against the new database before you switch DNS.
 The whole product depends on those policies. Then point `kinmemo.app`, `www`,
 `api` and `admin` to the LB IP (proxied, Full (strict)). If `api.kinmemo.app`
