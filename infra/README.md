@@ -253,6 +253,11 @@ was DNS-only (grey cloud), turn the proxy on.
 
 #### 6c. Kelime Savaşı (week 4, 04:00–06:00 Istanbul)
 
+**Done 2026-09-24, 18:07 UTC.** About 4 minutes of downtime; row counts matched
+(8052 users, 49516 matches, 133221 coin tx, 11509 lb rows, schema 84). The old
+server's `kelime-savasi-service-1` is stopped; never start it again (duplicate
+push notifications). Delete the server after a week, once its backups are downloaded.
+
 **Use `scripts/cutover-kelime.sh`.** It runs the steps below in order, checks each
 one, and stops on the first problem: `check` (read-only), `switch` (~5 min
 downtime), then Cloudflare DNS, then `verify`. `rollback` restarts the old

@@ -27,11 +27,11 @@ metadata:
   namespace: game
   labels: { app: kelime-service }
 spec:
-  # 0 until the migration switch. The service runs background jobs (push
-  # notifications, season scheduler, economy snapshots); running it here while
-  # the old server's copy runs would send players duplicate notifications.
-  # Set to 1 in the same step that stops the old service.
-  replicas: 0
+  # Live in the cluster since 2026-09-24 (switch at 18:07 UTC). The old
+  # server's service is stopped and must stay stopped: it runs the same
+  # background jobs (push notifications, season scheduler, economy snapshots)
+  # and players would get duplicate notifications.
+  replicas: 1
   strategy:
     type: Recreate
   selector:
