@@ -61,10 +61,12 @@ kubectl -n monitoring rollout restart deploy/vm-grafana >/dev/null
 kubectl -n monitoring rollout status deploy/vm-grafana --timeout=240s
 kustomize build monitoring/telegram | kubectl apply --server-side --field-manager=antcoders-infra -f -
 sleep 30
+# Grafana 13 test API: receiver name is base64("telegram") = dGVsZWdyYW0. The
+# token is read from Grafana's own environment, so it never leaves the pod.
 kubectl -n monitoring exec deploy/vm-grafana -c grafana -- sh -c '
   curl -s -X POST -u "$GF_SECURITY_ADMIN_USER:$GF_SECURITY_ADMIN_PASSWORD" \
     -H "Content-Type: application/json" \
-    http://localhost:3000/api/alertmanager/grafana/config/api/v1/receivers/test \
-    -d "{\"receivers\":[{\"name\":\"telegram\",\"grafana_managed_receiver_configs\":[{\"uid\":\"telegram\",\"name\":\"telegram\",\"type\":\"telegram\",\"settings\":{\"bottoken\":\"$TELEGRAM_BOT_TOKEN\",\"chatid\":\"$TELEGRAM_CHAT_ID\",\"parse_mode\":\"HTML\"}}]}]}" \
-    | grep -o "\"status\":\"[a-z_]*\"" | head -1'
+    http://localhost:3000/apis/notifications.alerting.grafana.app/v1beta1/namespaces/default/receivers/dGVsZWdyYW0/test \
+    -d "{\"integration\":{\"uid\":\"telegram\",\"type\":\"telegram\",\"version\":\"v1\",\"settings\":{\"bottoken\":\"$TELEGRAM_BOT_TOKEN\",\"chatid\":\"$TELEGRAM_CHAT_ID\",\"parse_mode\":\"HTML\"}}}"' \
+  | grep -q '"status":"success"' || { echo "Grafana could not send the test message." >&2; exit 1; }
 echo "A test message should now be in your Telegram chat."
