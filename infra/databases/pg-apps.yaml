@@ -108,9 +108,12 @@ spec:
   cluster: { name: pg-apps }
   name: kinmemo
   owner: postgres
+  # Same set as the old Kinmemo server.
   extensions:
     - { name: vector, ensure: present }
     - { name: citext, ensure: present }
+    - { name: pg_trgm, ensure: present }
+    - { name: pgcrypto, ensure: present }
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
