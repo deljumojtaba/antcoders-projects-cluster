@@ -1,0 +1,145 @@
+# Shared Postgres (with pgvector) for Kinmemo, Antcoders Assist and the
+# marketing agent. Primary + replica on the two non-game nodes.
+#
+# Each app gets its own database and roles, so one app can never read
+# another's data:
+#   kinmemo    owner postgres (migrations run as superuser, as on the old
+#              server), used at runtime by kinmemo_app (RLS) and
+#              kinmemo_system (BYPASSRLS)
+#   rag        owner rag      (Antcoders Assist)
+#   marketing  owner marketing
+#
+# Locale is C on purpose: Kinmemo's citext email column breaks under a Turkish
+# collation (see kinmemo/backend/DATABASE.md -> users).
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: r2-apps
+  namespace: data
+spec:
+  retentionPolicy: "14d"
+  configuration:
+    destinationPath: s3://antcoders-backups/pg-apps
+    endpointURL: https://047e354ffedca2fb6b1f9e24116e6a1a.r2.cloudflarestorage.com
+    s3Credentials:
+      accessKeyId: { name: r2-credentials, key: ACCESS_KEY_ID }
+      secretAccessKey: { name: r2-credentials, key: ACCESS_SECRET_KEY }
+      region: { name: r2-credentials, key: REGION }
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-apps
+  namespace: data
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.10-standard-trixie
+  primaryUpdateStrategy: unsupervised
+  enableSuperuserAccess: true      # creates secret pg-apps-superuser (Kinmemo migrations)
+
+  bootstrap:
+    initdb:
+      database: marketing
+      owner: marketing
+      secret:
+        name: pg-apps-marketing
+      encoding: UTF8
+      localeCollate: C
+      localeCType: C
+
+  managed:
+    roles:
+      - name: kinmemo_app
+        ensure: present
+        login: true
+        passwordSecret: { name: pg-apps-kinmemo-app }
+      - name: kinmemo_system
+        ensure: present
+        login: true
+        bypassrls: true
+        passwordSecret: { name: pg-apps-kinmemo-system }
+      - name: rag
+        ensure: present
+        login: true
+        passwordSecret: { name: pg-apps-rag }
+
+  postgresql:
+    parameters:
+      shared_buffers: 384MB
+      effective_cache_size: 1GB
+      work_mem: 8MB
+      random_page_cost: "1.1"
+      max_connections: "100"
+
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: r2-apps
+
+  storage:
+    storageClass: local-path
+    size: 20Gi
+
+  resources:
+    requests: { cpu: 250m, memory: 1536Mi }
+    limits: { cpu: "2", memory: 1536Mi }
+
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+    topologyKey: kubernetes.io/hostname
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - { key: antcoders.dev/pool, operator: NotIn, values: [game] }
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: kinmemo
+  namespace: data
+spec:
+  cluster: { name: pg-apps }
+  name: kinmemo
+  owner: postgres
+  extensions:
+    - { name: vector, ensure: present }
+    - { name: citext, ensure: present }
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: rag
+  namespace: data
+spec:
+  cluster: { name: pg-apps }
+  name: rag
+  owner: rag
+  # Same collation as the old Assist server (en_US.utf8), unlike the C default
+  # this cluster uses for Kinmemo: keeps text sort order identical after restore.
+  template: template0
+  encoding: UTF8
+  localeCollate: en_US.UTF-8
+  localeCType: en_US.UTF-8
+  extensions:
+    - { name: vector, ensure: present }
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: pg-apps-nightly
+  namespace: data
+spec:
+  schedule: "0 30 3 * * *"
+  cluster:
+    name: pg-apps
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  backupOwnerReference: self

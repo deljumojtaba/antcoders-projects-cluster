@@ -1,0 +1,56 @@
+# kelimesavasi.app and admin.kelimesavasi.app. Rolling update, no downtime.
+name: k8s-sites
+
+on:
+  push:
+    branches: [master]
+    paths: ["website/**", "admin/**", "deploy/k8s/kelime-website/**", "deploy/k8s/kelime-admin/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        site: [kelime-website, kelime-admin]
+    concurrency: ${{ matrix.site }}
+    env:
+      IMAGE: ghcr.io/deljumojtaba/${{ matrix.site }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/k8s/${{ matrix.site }}/Dockerfile
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
+          push: true
+          tags: ${{ env.IMAGE }}:${{ github.sha }},${{ env.IMAGE }}:latest
+          cache-from: type=gha,scope=${{ matrix.site }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.site }}
+      - name: Deploy
+        env:
+          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_CI }}
+        run: |
+          echo "$KUBECONFIG_DATA" > "$RUNNER_TEMP/kubeconfig"
+          export KUBECONFIG="$RUNNER_TEMP/kubeconfig"
+          kubectl -n game set image deployment/${{ matrix.site }} nginx="$IMAGE:$GITHUB_SHA"
+          kubectl -n game rollout status deployment/${{ matrix.site }} --timeout=5m
+      # Keeps the last 10 images (room for rollbacks); older ones are deleted from GHCR.
+      - name: Delete old images
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ matrix.site }}
+          package-type: container
+          min-versions-to-keep: 10

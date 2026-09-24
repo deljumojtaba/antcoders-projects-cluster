@@ -1,0 +1,103 @@
+# Antcoders cluster — 3 × CX33 in one location, all three are control plane
+# (embedded etcd, so any one node can die) and all three run workloads.
+#
+#   export HCLOUD_TOKEN=...   # Hetzner Cloud project API token (read/write), same terminal
+#   hetzner-k3s create --config cluster/hetzner-k3s.yaml
+#
+# Tested against hetzner-k3s v2.6.0. Check `hetzner-k3s --version` before running.
+---
+cluster_name: antcoders
+kubeconfig_path: "./kubeconfig"
+k3s_version: v1.35.8+k3s1
+config_format_version: 1
+
+networking:
+  ssh:
+    port: 22
+    use_agent: false
+    use_private_ip: false
+    public_key_path: "~/.ssh/antcoders_deploy.pub"
+    private_key_path: "~/.ssh/antcoders_deploy"
+  allowed_networks:
+    ssh:
+      # SSH to the nodes is only for debugging; kubectl uses the API below.
+      # From anywhere else: connect to the VPN first.
+      - 213.14.134.231/32   # office
+      - 3.70.169.152/32     # VPN
+      # - HOME.IP/32        # home
+    api:
+      # GitHub Actions deploys through the API, and its runner IPs are not
+      # stable, so 6443 stays open. It is still protected by client certs /
+      # service-account tokens.
+      - 0.0.0.0/0
+  public_network:
+    ipv4: true   # needed: GHCR and many package mirrors have no IPv6
+    # Off: each public IP counts against the project's Primary IP limit, and
+    # nothing needs it (visitors arrive via Cloudflare -> LB over IPv4, nodes
+    # talk over the private network).
+    ipv6: false
+  private_network:
+    enabled: true
+    subnet: 10.0.0.0/16
+    existing_network_name: ""
+  cni:
+    enabled: true
+    encryption: false
+    mode: flannel
+
+datastore:
+  mode: etcd
+  etcd:
+    snapshot_retention: 24
+    snapshot_schedule_cron: "0 */6 * * *"
+
+# Three nodes only, so every node is both control plane and worker.
+schedule_workloads_on_masters: true
+
+masters_pool:
+  instance_type: cx33
+  instance_count: 3
+  # One entry per master. All three in Nuremberg: same datacenter keeps etcd
+  # and Postgres replication fast. A spread placement group puts them on
+  # different physical hosts.
+  locations:
+    - nbg1
+    - nbg1
+    - nbg1
+
+# No worker pools yet. To allow a temporary extra node during traffic spikes,
+# uncomment (billed hourly, ~$0.016/h while it exists):
+# worker_node_pools:
+#   - name: burst
+#     instance_type: cx33
+#     location: nbg1
+#     autoscaling:
+#       enabled: true
+#       min_instances: 0
+#       max_instances: 1
+worker_node_pools: []
+
+addons:
+  csi_driver:
+    enabled: true            # hcloud-volumes StorageClass (network volumes that follow a pod to another node)
+  traefik:
+    enabled: false           # installed by platform/install.sh with our own values
+  servicelb:
+    enabled: false           # the Hetzner LB is created by the cloud controller instead
+  metrics_server:
+    enabled: true            # required by HorizontalPodAutoscaler
+  cluster_autoscaler:
+    enabled: false           # turn on together with the burst pool above
+  cloud_controller_manager:
+    enabled: true
+  system_upgrade_controller:
+    enabled: true
+  embedded_registry_mirror:
+    enabled: true            # nodes share pulled images peer-to-peer: faster failover starts
+
+protect_against_deletion: true
+
+# Costs extra and adds nothing with 3 masters: kubectl can talk to any master.
+create_load_balancer_for_the_kubernetes_api: false
+
+k3s_upgrade_concurrency: 1

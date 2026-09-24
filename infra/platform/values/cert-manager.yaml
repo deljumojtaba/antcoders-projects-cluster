@@ -1,0 +1,31 @@
+# cert-manager is only here because the barman-cloud backup plugin needs it for
+# its internal TLS. Public certificates are Cloudflare Origin certificates, not
+# Let's Encrypt.
+crds:
+  enabled: true
+
+affinity: &notGame
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - { key: antcoders.dev/pool, operator: NotIn, values: [game] }
+
+resources:
+  requests: { cpu: 10m, memory: 48Mi }
+  limits: { memory: 128Mi }
+
+webhook:
+  affinity: *notGame
+  resources:
+    requests: { cpu: 10m, memory: 24Mi }
+    limits: { memory: 64Mi }
+
+cainjector:
+  affinity: *notGame
+  resources:
+    requests: { cpu: 10m, memory: 48Mi }
+    limits: { memory: 128Mi }
+
+startupapicheck:
+  affinity: *notGame

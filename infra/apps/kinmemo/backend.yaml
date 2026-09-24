@@ -1,0 +1,137 @@
+# Kinmemo API + worker. One image, three binaries (/srv/api, /srv/worker,
+# /srv/migrate). Migrations never run on boot: CI runs migrate-job.yaml first.
+#
+# Uploads: the API stages a file in UPLOAD_DIR and the worker picks it up, so
+# both need the same directory. Until uploads move to object storage (R2), the
+# two pods share one Hetzner volume and must sit on the same node (the
+# podAffinity on the worker), and the API stays at 1 replica. After the R2
+# change: drop the volume, raise api replicas to 2, and enable hpa.yaml.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kinmemo-uploads
+  namespace: kinmemo
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: hcloud-volumes
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kinmemo-api
+  namespace: kinmemo
+  labels: { app: kinmemo-api }
+spec:
+  replicas: 1
+  # RWO volume: the new pod cannot start while the old one holds it on
+  # another node, so replace in place rather than surge.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: kinmemo-api }
+  template:
+    metadata:
+      labels: { app: kinmemo-api }
+    spec:
+      imagePullSecrets: [{ name: ghcr-pull }]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532        # replaces the chown step in the old deploy.sh
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - { key: antcoders.dev/pool, operator: NotIn, values: [game] }
+      containers:
+        - name: api
+          image: ghcr.io/deljumojtaba/kinmemo-backend:latest
+          command: ["/srv/api"]
+          envFrom:
+            - secretRef: { name: kinmemo-env }
+          env:
+            - { name: PORT, value: "8080" }
+            - { name: UPLOAD_DIR, value: /srv/uploads }
+          ports: [{ name: http, containerPort: 8080 }]
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          lifecycle:
+            preStop:
+              sleep: { seconds: 5 }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 256Mi }
+          volumeMounts:
+            - { name: uploads, mountPath: /srv/uploads }
+      volumes:
+        - name: uploads
+          persistentVolumeClaim: { claimName: kinmemo-uploads }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kinmemo-worker
+  namespace: kinmemo
+  labels: { app: kinmemo-worker }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: kinmemo-worker }
+  template:
+    metadata:
+      labels: { app: kinmemo-worker }
+    spec:
+      imagePullSecrets: [{ name: ghcr-pull }]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - { key: antcoders.dev/pool, operator: NotIn, values: [game] }
+        # Same node as the API, because they share the RWO uploads volume.
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels: { app: kinmemo-api }
+      containers:
+        - name: worker
+          image: ghcr.io/deljumojtaba/kinmemo-backend:latest
+          command: ["/srv/worker"]
+          envFrom:
+            - secretRef: { name: kinmemo-env }
+          env:
+            - { name: UPLOAD_DIR, value: /srv/uploads }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 256Mi }
+          volumeMounts:
+            - { name: uploads, mountPath: /srv/uploads }
+      volumes:
+        - name: uploads
+          persistentVolumeClaim: { claimName: kinmemo-uploads }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kinmemo-api
+  namespace: kinmemo
+spec:
+  selector: { app: kinmemo-api }
+  ports: [{ name: http, port: 8080, targetPort: http }]

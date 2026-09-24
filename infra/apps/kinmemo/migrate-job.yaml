@@ -1,0 +1,36 @@
+# Not part of the kustomization. CI (or you) runs it before rolling out a new
+# image, with IMAGE replaced by the new tag:
+#
+#   sed "s|IMAGE|ghcr.io/deljumojtaba/kinmemo-backend:<sha>|" migrate-job.yaml \
+#     | kubectl -n kinmemo apply -f -
+#   kubectl -n kinmemo wait --for=condition=complete job/kinmemo-migrate --timeout=5m
+#
+# MIGRATE_DATABASE_URL (superuser, from secret kinmemo-env) is what the binary
+# reads, same as the old `run --rm --entrypoint /srv/migrate api up`.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kinmemo-migrate
+  namespace: kinmemo
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      imagePullSecrets: [{ name: ghcr-pull }]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - { key: antcoders.dev/pool, operator: NotIn, values: [game] }
+      containers:
+        - name: migrate
+          image: IMAGE
+          command: ["/srv/migrate", "up"]
+          envFrom:
+            - secretRef: { name: kinmemo-env }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }

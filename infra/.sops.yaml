@@ -1,0 +1,8 @@
+# Secrets in secrets/ are encrypted in place with age before they are committed:
+#   age-keygen -o ~/.config/sops/age/antcoders.txt    # once; back this file up!
+#   cp secrets/game/pg-game-kelime.example.yaml secrets/game/pg-game-kelime.yaml
+#   (fill in values)  &&  sops -e -i secrets/game/pg-game-kelime.yaml
+creation_rules:
+  - path_regex: secrets/.*\.yaml$
+    encrypted_regex: ^(data|stringData)$
+    age: age15zx5lh9fe2r8ad3fm9vacu76jwe7hgs45ksmenwgfmjua5t7dstqj5x348   # the "public key:" line printed by age-keygen

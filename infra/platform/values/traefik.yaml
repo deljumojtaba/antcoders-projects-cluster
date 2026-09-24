@@ -1,0 +1,108 @@
+# Traefik runs on every node (DaemonSet) behind one Hetzner LB11.
+#
+# Path of a request:
+#   player -> Cloudflare -> LB11 (TCP, proxy protocol) -> Traefik on a node -> pod
+#
+# The LB is plain TCP, not "http" mode: Hetzner's http mode closes idle
+# connections after 50 s, which would drop game WebSockets.
+
+deployment:
+  kind: DaemonSet
+
+# Must also run on the game node, since the LB sends traffic to every node.
+tolerations: []
+priorityClassName: system-cluster-critical
+
+resources:
+  requests: { cpu: 50m, memory: 96Mi }
+  limits: { memory: 256Mi }
+
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+    maxSurge: 0
+
+ingressRoute:
+  dashboard:
+    enabled: false
+
+providers:
+  kubernetesCRD:
+    enabled: true
+    # Lets a route in one namespace use a middleware from the traefik namespace.
+    allowCrossNamespace: true
+  kubernetesIngress:
+    enabled: false
+
+ports:
+  web:
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+    proxyProtocol:
+      trustedIPs: ["10.0.0.0/16"]      # the LB reaches nodes over the private network
+    forwardedHeaders:
+      trustedIPs: &cloudflare
+        - 173.245.48.0/20
+        - 103.21.244.0/22
+        - 103.22.200.0/22
+        - 103.31.4.0/22
+        - 141.101.64.0/18
+        - 108.162.192.0/18
+        - 190.93.240.0/20
+        - 188.114.96.0/20
+        - 197.234.240.0/22
+        - 198.41.128.0/17
+        - 162.158.0.0/15
+        - 104.16.0.0/13
+        - 104.24.0.0/14
+        - 172.64.0.0/13
+        - 131.0.72.0/22
+        - 2400:cb00::/32
+        - 2606:4700::/32
+        - 2803:f800::/32
+        - 2405:b500::/32
+        - 2405:8100::/32
+        - 2a06:98c0::/29
+        - 2c0f:f248::/32
+  websecure:
+    proxyProtocol:
+      trustedIPs: ["10.0.0.0/16"]
+    forwardedHeaders:
+      trustedIPs: *cloudflare
+    transport:
+      respondingTimeouts:
+        # Kinmemo accepts 25 MB imports; the v3 default of 60 s is too short on
+        # a slow phone connection. Upgraded WebSockets are not affected by it.
+        readTimeout: 300s
+      lifeCycle:
+        # On a Traefik restart, finish in-flight requests before closing.
+        requestAcceptGraceTimeout: 5s
+        graceTimeOut: 30s
+
+service:
+  annotations:
+    load-balancer.hetzner.cloud/name: antcoders-lb
+    load-balancer.hetzner.cloud/location: nbg1
+    load-balancer.hetzner.cloud/type: lb11
+    load-balancer.hetzner.cloud/use-private-ip: "true"
+    load-balancer.hetzner.cloud/uses-proxyprotocol: "true"
+    load-balancer.hetzner.cloud/algorithm-type: least_connections
+    load-balancer.hetzner.cloud/health-check-interval: "15s"
+  spec:
+    # Traffic stays on the node the LB picked: no extra hop, and the node's
+    # health check fails if its Traefik is down.
+    externalTrafficPolicy: Local
+
+log:
+  level: INFO
+# Access logs stay off: 404 tracking comes from metrics (see monitoring/scrapes.yaml).
+
+metrics:
+  prometheus:
+    addRoutersLabels: true
+    addServicesLabels: true

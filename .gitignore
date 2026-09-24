@@ -1,0 +1,10 @@
+# Cluster admin access — full control of the cluster. Never commit.
+kubeconfig
+kubeconfig*
+# Decrypted secrets and database dumps
+*.dec.yaml
+*.dump
+*.tgz
+.DS_Store
+# Editor extension leftovers, not part of the infrastructure
+/.github/modernize/

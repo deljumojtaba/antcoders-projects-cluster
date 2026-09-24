@@ -1,0 +1,48 @@
+# What VictoriaMetrics scrapes besides the cluster defaults.
+#
+# Useful Grafana queries:
+#   game players online     kelime CCU gauge from /metrics (hub.ConnectedCount)
+#   404s per host           sum by (router) (rate(traefik_router_requests_total{code="404"}[5m]))
+#   p95 latency per host    histogram_quantile(0.95, sum by (le, router) (rate(traefik_router_request_duration_seconds_bucket[5m])))
+#   Postgres replica lag    cnpg_pg_replication_lag
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: kelime-service
+  namespace: monitoring
+spec:
+  namespaceSelector: { matchNames: [game] }
+  selector:
+    matchLabels: { app: kelime-service }
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: traefik
+  namespace: monitoring
+spec:
+  namespaceSelector: { matchNames: [traefik] }
+  selector:
+    matchLabels: { app.kubernetes.io/name: traefik }
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: cnpg
+  namespace: monitoring
+spec:
+  namespaceSelector: { matchNames: [game, data] }
+  selector:
+    matchExpressions:
+      - { key: cnpg.io/cluster, operator: Exists }
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 30s

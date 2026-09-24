@@ -1,0 +1,70 @@
+# Checks every public URL once a minute and alerts to Telegram (configure the
+# notification in its UI). It runs inside the cluster, so it cannot report the
+# whole cluster being down; for that, also add a free external monitor
+# (e.g. Better Stack or UptimeRobot) on https://api.kelimesavasi.app/healthz.
+#
+#   kubectl -n monitoring port-forward svc/uptime-kuma 3001:3001
+#
+# Monitors to add:
+#   https://api.kelimesavasi.app/healthz     https://kelimesavasi.app
+#   https://api.kinmemo.app/healthz          https://kinmemo.app
+#   https://ai.antcoders.dev/api/health      https://antcoders.dev
+#   https://admin.kelimesavasi.app           https://admin.kinmemo.app
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: uptime-kuma
+  namespace: monitoring
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: uptime-kuma
+  namespace: monitoring
+  labels: { app: uptime-kuma }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: uptime-kuma }
+  template:
+    metadata:
+      labels: { app: uptime-kuma }
+    spec:
+      priorityClassName: low
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - { key: antcoders.dev/pool, operator: NotIn, values: [game] }
+      containers:
+        - name: uptime-kuma
+          image: louislam/uptime-kuma:2.5.5
+          ports: [{ name: http, containerPort: 3001 }]
+          readinessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 20m, memory: 128Mi }
+            limits: { memory: 256Mi }
+          volumeMounts:
+            - { name: data, mountPath: /app/data }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: uptime-kuma }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: uptime-kuma
+  namespace: monitoring
+spec:
+  selector: { app: uptime-kuma }
+  ports: [{ name: http, port: 3001, targetPort: http }]

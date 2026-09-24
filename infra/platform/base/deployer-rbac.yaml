@@ -1,0 +1,76 @@
+# A narrow identity for GitHub Actions: it can update images and run migration
+# Jobs in the app namespaces, and nothing else. Never put your admin kubeconfig
+# in GitHub. Generate the CI kubeconfig with scripts/make-ci-kubeconfig.sh.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: deployer
+  namespace: kube-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: deployer-token
+  namespace: kube-system
+  annotations:
+    kubernetes.io/service-account.name: deployer
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: deployer
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+# Bound per namespace, so the ClusterRole grants nothing cluster-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer
+  namespace: game
+subjects: [{ kind: ServiceAccount, name: deployer, namespace: kube-system }]
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: deployer }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer
+  namespace: kinmemo
+subjects: [{ kind: ServiceAccount, name: deployer, namespace: kube-system }]
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: deployer }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer
+  namespace: assist
+subjects: [{ kind: ServiceAccount, name: deployer, namespace: kube-system }]
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: deployer }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer
+  namespace: web
+subjects: [{ kind: ServiceAccount, name: deployer, namespace: kube-system }]
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: deployer }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer
+  namespace: marketing
+subjects: [{ kind: ServiceAccount, name: deployer, namespace: kube-system }]
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: deployer }

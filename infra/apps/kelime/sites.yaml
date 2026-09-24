@@ -1,0 +1,113 @@
+# Kelime Savaşı landing site (kelimesavasi.app) and admin panel
+# (admin.kelimesavasi.app). Static files in small nginx images, built by CI
+# from infra/images/. They run on the app nodes, never on the game node.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kelime-website
+  namespace: game
+  labels: { app: kelime-website }
+spec:
+  replicas: 2
+  strategy:
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: kelime-website }
+  template:
+    metadata:
+      labels: { app: kelime-website }
+    spec:
+      imagePullSecrets: [{ name: ghcr-pull }]
+      affinity: &notGame
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - { key: antcoders.dev/pool, operator: NotIn, values: [game] }
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: { app: kelime-website }
+          matchLabelKeys: [pod-template-hash]
+      containers:
+        - name: nginx
+          image: ghcr.io/deljumojtaba/kelime-website:latest
+          ports: [{ name: http, containerPort: 8080 }]
+          readinessProbe: &probe
+            httpGet: { path: /, port: http }
+            periodSeconds: 5
+          livenessProbe: *probe
+          lifecycle: &drain
+            preStop:
+              exec: { command: ["sleep", "5"] }
+          resources: &static
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kelime-admin
+  namespace: game
+  labels: { app: kelime-admin }
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: kelime-admin }
+  template:
+    metadata:
+      labels: { app: kelime-admin }
+    spec:
+      imagePullSecrets: [{ name: ghcr-pull }]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - { key: antcoders.dev/pool, operator: NotIn, values: [game] }
+      containers:
+        - name: nginx
+          image: ghcr.io/deljumojtaba/kelime-admin:latest
+          ports: [{ name: http, containerPort: 8080 }]
+          readinessProbe: &probe
+            httpGet: { path: /, port: http }
+            periodSeconds: 5
+          livenessProbe: *probe
+          lifecycle:
+            preStop:
+              exec: { command: ["sleep", "5"] }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kelime-website
+  namespace: game
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: kelime-website }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kelime-website
+  namespace: game
+spec:
+  selector: { app: kelime-website }
+  ports: [{ name: http, port: 80, targetPort: http }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kelime-admin
+  namespace: game
+spec:
+  selector: { app: kelime-admin }
+  ports: [{ name: http, port: 80, targetPort: http }]

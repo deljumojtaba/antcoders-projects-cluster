@@ -1,0 +1,24 @@
+# When a node dies and the remaining two are short on memory, Kubernetes evicts
+# lower priorities to make room for higher ones. The game always wins.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: game-critical
+value: 1000000
+description: Kelime Savaşı service, its Postgres and Redis.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: apps
+value: 100000
+globalDefault: true
+description: Default for customer-facing apps (Kinmemo, Assist, websites).
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: low
+value: 1000
+preemptionPolicy: Never
+description: Monitoring and the marketing agent. First to go under pressure.

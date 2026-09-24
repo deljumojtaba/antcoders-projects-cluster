@@ -1,0 +1,5 @@
+kubeconfig
+kubeconfig*
+*.dec.yaml
+*.dump
+.DS_Store

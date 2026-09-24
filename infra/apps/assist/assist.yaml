@@ -1,0 +1,170 @@
+# Antcoders Assist (ai.antcoders.dev). Mirrors deploy/Caddyfile: /api/*,
+# /assist.js and /embed go to the Go API, everything else to the Next.js panel.
+#
+# The API stays at 1 replica: its realtime hub (internal/realtime/hub.go) is an
+# in-process map, so with two pods an operator taking over a chat could miss
+# visitor messages. Once the hub fans out through Postgres LISTEN/NOTIFY or
+# Redis, raise replicas and add an HPA like the panel's.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: assist-api
+  namespace: assist
+  labels: { app: assist-api }
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: assist-api }
+  template:
+    metadata:
+      labels: { app: assist-api }
+    spec:
+      imagePullSecrets: [{ name: ghcr-pull }]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - { key: antcoders.dev/pool, operator: NotIn, values: [game] }
+      containers:
+        - name: api
+          image: ghcr.io/deljumojtaba/assist-api:latest
+          envFrom:
+            - secretRef: { name: assist-env }
+          env:
+            - { name: PORT, value: "8080" }
+            - { name: PUBLIC_BASE_URL, value: https://ai.antcoders.dev }
+            - { name: ALLOWED_ORIGINS, value: https://ai.antcoders.dev }
+          ports: [{ name: http, containerPort: 8080 }]
+          readinessProbe:
+            httpGet: { path: /api/health, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /api/health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          lifecycle:
+            preStop:
+              sleep: { seconds: 5 }
+          # PDF/XLSX parsing is memory-hungry; keep the limit generous.
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 384Mi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: assist-panel
+  namespace: assist
+  labels: { app: assist-panel }
+spec:
+  replicas: 2
+  strategy:
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: assist-panel }
+  template:
+    metadata:
+      labels: { app: assist-panel }
+    spec:
+      imagePullSecrets: [{ name: ghcr-pull }]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - { key: antcoders.dev/pool, operator: NotIn, values: [game] }
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: { app: assist-panel }
+          matchLabelKeys: [pod-template-hash]
+      containers:
+        - name: panel
+          # NEXT_PUBLIC_API_URL=https://ai.antcoders.dev is baked in at build time.
+          image: ghcr.io/deljumojtaba/assist-panel:latest
+          ports: [{ name: http, containerPort: 3000 }]
+          readinessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 10
+            failureThreshold: 6
+          lifecycle:
+            preStop:
+              sleep: { seconds: 5 }
+          resources:
+            requests: { cpu: 50m, memory: 160Mi }
+            limits: { cpu: "1", memory: 384Mi }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: assist-panel
+  namespace: assist
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: assist-panel }
+  minReplicas: 2
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: assist-panel
+  namespace: assist
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: assist-panel }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: assist-api
+  namespace: assist
+spec:
+  selector: { app: assist-api }
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: assist-panel
+  namespace: assist
+spec:
+  selector: { app: assist-panel }
+  ports: [{ name: http, port: 3000, targetPort: http }]
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: assist
+  namespace: assist
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`ai.antcoders.dev`) && (PathPrefix(`/api/`) || Path(`/assist.js`) || Path(`/embed`) || PathPrefix(`/embed/`))
+      kind: Rule
+      middlewares:
+        - { name: security-headers, namespace: traefik }
+      services:
+        - { name: assist-api, port: 8080 }
+    - match: Host(`ai.antcoders.dev`)
+      kind: Rule
+      middlewares:
+        - { name: security-headers, namespace: traefik }
+        - { name: compress, namespace: traefik }
+      services:
+        - { name: assist-panel, port: 3000 }
+  tls: {}

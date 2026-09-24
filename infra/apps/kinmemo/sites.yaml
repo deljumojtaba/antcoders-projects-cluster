@@ -1,0 +1,111 @@
+# kinmemo.app (landing) and the admin dashboard's static files.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kinmemo-site
+  namespace: kinmemo
+  labels: { app: kinmemo-site }
+spec:
+  replicas: 2
+  strategy:
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: kinmemo-site }
+  template:
+    metadata:
+      labels: { app: kinmemo-site }
+    spec:
+      imagePullSecrets: [{ name: ghcr-pull }]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - { key: antcoders.dev/pool, operator: NotIn, values: [game] }
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: { app: kinmemo-site }
+          matchLabelKeys: [pod-template-hash]
+      containers:
+        - name: nginx
+          image: ghcr.io/deljumojtaba/kinmemo-site:latest
+          ports: [{ name: http, containerPort: 8080 }]
+          readinessProbe: &probe
+            httpGet: { path: /, port: http }
+            periodSeconds: 5
+          livenessProbe: *probe
+          lifecycle:
+            preStop:
+              sleep: { seconds: 5 }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kinmemo-admin
+  namespace: kinmemo
+  labels: { app: kinmemo-admin }
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: kinmemo-admin }
+  template:
+    metadata:
+      labels: { app: kinmemo-admin }
+    spec:
+      imagePullSecrets: [{ name: ghcr-pull }]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - { key: antcoders.dev/pool, operator: NotIn, values: [game] }
+      containers:
+        - name: nginx
+          image: ghcr.io/deljumojtaba/kinmemo-admin:latest
+          ports: [{ name: http, containerPort: 8080 }]
+          readinessProbe: &probe
+            httpGet: { path: /, port: http }
+            periodSeconds: 5
+          livenessProbe: *probe
+          lifecycle:
+            preStop:
+              sleep: { seconds: 5 }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kinmemo-site
+  namespace: kinmemo
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: kinmemo-site }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kinmemo-site
+  namespace: kinmemo
+spec:
+  selector: { app: kinmemo-site }
+  ports: [{ name: http, port: 80, targetPort: http }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kinmemo-admin
+  namespace: kinmemo
+spec:
+  selector: { app: kinmemo-admin }
+  ports: [{ name: http, port: 80, targetPort: http }]

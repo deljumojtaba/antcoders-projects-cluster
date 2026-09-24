@@ -1,0 +1,117 @@
+# Kelime Savaşı game service.
+#
+# ONE replica, Recreate strategy. Matches and the WebSocket hub live in process
+# memory (backend/internal/websocket/hub.go) and six background loops would run
+# twice with two pods. Do not raise replicas until phase R4 of
+# kelime-savasi/docs/backend-refactoring-plan.md is done.
+#
+# config.yaml lives on a small Hetzner network volume, not a ConfigMap: the
+# admin panel writes live edits back to it (PATCH /v1/admin/config). The
+# volume follows the pod to another node on failover (~30-60 s to reattach).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kelime-config
+  namespace: game
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: hcloud-volumes
+  resources:
+    requests:
+      storage: 10Gi          # Hetzner's minimum volume size
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kelime-service
+  namespace: game
+  labels: { app: kelime-service }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: kelime-service }
+  template:
+    metadata:
+      labels: { app: kelime-service }
+    spec:
+      priorityClassName: game-critical
+      imagePullSecrets: [{ name: ghcr-pull }]
+      # Running matches last at most ~3 minutes; SIGTERM is handled in
+      # cmd/service/main.go, so give live matches time to finish.
+      terminationGracePeriodSeconds: 200
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - { key: antcoders.dev/pool, operator: In, values: [game] }
+      # Default is 300 s before a pod on a dead node is replaced. The game
+      # should come back in about a minute instead.
+      tolerations:
+        - { key: node.kubernetes.io/not-ready, operator: Exists, effect: NoExecute, tolerationSeconds: 30 }
+        - { key: node.kubernetes.io/unreachable, operator: Exists, effect: NoExecute, tolerationSeconds: 30 }
+      initContainers:
+        # Seeds config.yaml on the very first start only. After that the file
+        # on the volume is the source of truth, exactly like the old server.
+        - name: seed-config
+          image: busybox:1.37
+          command: ["sh", "-c", "[ -f /data/config.yaml ] || cp /seed/config.yaml /data/config.yaml"]
+          volumeMounts:
+            - { name: config, mountPath: /data }
+            - { name: config-seed, mountPath: /seed, readOnly: true }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 32Mi }
+      containers:
+        - name: service
+          image: ghcr.io/deljumojtaba/kelime-service:latest   # CI pins this to a commit SHA
+          command: ["/app/service", "-config=/data/config.yaml"]
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          # Memory request == limit, so it is never evicted for using what it
+          # asked for. No tight CPU limit: CPU throttling shows up as WebSocket
+          # latency spikes. Today it uses ~84 MB and <1% CPU.
+          resources:
+            requests: { cpu: 500m, memory: 512Mi }
+            limits: { cpu: "2", memory: 512Mi }
+          volumeMounts:
+            - { name: config, mountPath: /data }
+            - name: google-sa
+              mountPath: /app/google-service-account.json
+              subPath: google-service-account.json
+              readOnly: true
+      volumes:
+        - name: config
+          persistentVolumeClaim: { claimName: kelime-config }
+        - name: config-seed
+          secret: { secretName: kelime-config-seed }
+        - name: google-sa
+          secret: { secretName: kelime-google-sa }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kelime-service
+  namespace: game
+  labels: { app: kelime-service }
+spec:
+  selector: { app: kelime-service }
+  ports:
+    - { name: http, port: 8080, targetPort: http }

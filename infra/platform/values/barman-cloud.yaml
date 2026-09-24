@@ -1,0 +1,21 @@
+# Backup plugin for CloudNativePG. The operator must reach it to reconcile a
+# cluster at all (including failover), so it gets the same treatment as the
+# operator: two copies on different nodes.
+replicaCount: 2
+
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - { key: antcoders.dev/pool, operator: NotIn, values: [game] }
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: plugin-barman-cloud
+    # Only count pods of the same rollout, or old pods skew placement during an upgrade.
+    matchLabelKeys: [pod-template-hash]

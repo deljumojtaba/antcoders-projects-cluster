@@ -1,0 +1,104 @@
+# Kelime Savaşı Postgres: primary on the game node, streaming replica on
+# another node. If the primary's node dies, the replica is promoted in ~30 s
+# and the `pg-game-rw` service follows it, so the game needs no config change.
+#
+# After a failover the primary stays where it landed. To move it back once the
+# game node is healthy (in a quiet hour):
+#   kubectl cnpg promote pg-game <instance-on-game-node> -n game
+#
+# Tuning is the same as the Tier-0 settings on the old server. The whole
+# database is ~230 MB, so it fits in shared_buffers.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: r2-game
+  namespace: game
+spec:
+  retentionPolicy: "14d"
+  configuration:
+    destinationPath: s3://antcoders-backups/pg-game
+    endpointURL: https://047e354ffedca2fb6b1f9e24116e6a1a.r2.cloudflarestorage.com
+    s3Credentials:
+      accessKeyId: { name: r2-credentials, key: ACCESS_KEY_ID }
+      secretAccessKey: { name: r2-credentials, key: ACCESS_SECRET_KEY }
+      region: { name: r2-credentials, key: REGION }
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-game
+  namespace: game
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.10-standard-trixie
+  primaryUpdateStrategy: unsupervised
+  priorityClassName: game-critical
+
+  bootstrap:
+    initdb:
+      database: kelime_prod
+      owner: kelime
+      secret:
+        name: pg-game-kelime        # basic-auth: username=kelime, password=...
+      # Match the old server (official postgres image default). Check with:
+      #   SELECT datcollate, datctype FROM pg_database WHERE datname='kelime_prod';
+      localeCollate: en_US.UTF-8
+      localeCType: en_US.UTF-8
+
+  postgresql:
+    parameters:
+      shared_buffers: 512MB
+      effective_cache_size: 1536MB
+      work_mem: 16MB
+      random_page_cost: "1.1"
+      checkpoint_completion_target: "0.9"
+      max_connections: "100"
+
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: r2-game
+
+  # Local NVMe of the node: fastest option, and replication (not the volume)
+  # is what protects against losing a node.
+  storage:
+    storageClass: local-path
+    size: 20Gi
+
+  # Memory request == limit; CPU may burst to 2 cores (no throttling at peaks).
+  resources:
+    requests: { cpu: 500m, memory: 2Gi }
+    limits: { cpu: "2", memory: 2Gi }
+
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required        # never both instances on one node
+    topologyKey: kubernetes.io/hostname
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - { key: antcoders.dev/pool, operator: In, values: [game] }
+
+  monitoring:
+    enablePodMonitor: false   # scraped by VictoriaMetrics, see monitoring/scrapes.yaml
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: pg-game-nightly
+  namespace: game
+spec:
+  schedule: "0 0 3 * * *"     # 03:00 UTC daily (06:00 Istanbul, lowest traffic)
+  cluster:
+    name: pg-game
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  backupOwnerReference: self

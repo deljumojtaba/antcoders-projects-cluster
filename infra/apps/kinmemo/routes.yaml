@@ -1,0 +1,64 @@
+# Mirrors kinmemo/backend/deploy/Caddyfile.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: www-to-apex
+  namespace: kinmemo
+spec:
+  redirectRegex:
+    regex: ^https://www\.kinmemo\.app/(.*)
+    replacement: https://kinmemo.app/${1}
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: upload-limit
+  namespace: kinmemo
+spec:
+  buffering:
+    maxRequestBodyBytes: 26214400     # 25 MB, same as Caddy's request_body max_size
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: kinmemo
+  namespace: kinmemo
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`api.kinmemo.app`)
+      kind: Rule
+      middlewares:
+        - { name: security-headers, namespace: traefik }
+        - { name: upload-limit }
+      services:
+        - { name: kinmemo-api, port: 8080 }
+    - match: Host(`kinmemo.app`)
+      kind: Rule
+      middlewares:
+        - { name: security-headers, namespace: traefik }
+        - { name: compress, namespace: traefik }
+      services:
+        - { name: kinmemo-site, port: 80 }
+    - match: Host(`www.kinmemo.app`)
+      kind: Rule
+      middlewares:
+        - { name: www-to-apex }
+      services:
+        - { name: kinmemo-site, port: 80 }
+    # The admin dashboard is static, but its /admin/* calls go to the API.
+    - match: Host(`admin.kinmemo.app`) && PathPrefix(`/admin/`)
+      kind: Rule
+      middlewares:
+        - { name: security-headers, namespace: traefik }
+      services:
+        - { name: kinmemo-api, port: 8080 }
+    - match: Host(`admin.kinmemo.app`)
+      kind: Rule
+      middlewares:
+        - { name: security-headers, namespace: traefik }
+        - { name: compress, namespace: traefik }
+      services:
+        - { name: kinmemo-admin, port: 80 }
+  tls: {}
