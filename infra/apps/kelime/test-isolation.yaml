@@ -1,0 +1,36 @@
+# NOT part of the kustomization. Used only to test the game service in the
+# cluster BEFORE the switch, on a copy of the database: it cuts the service off
+# from the internet so its background jobs cannot send push notifications or
+# talk to Apple/Google while the old server is still live. Only DNS, its
+# Postgres and its Redis are reachable.
+#
+#   kubectl apply -f apps/kelime/test-isolation.yaml
+#   ... test ...
+#   kubectl delete -f apps/kelime/test-isolation.yaml   # before going live!
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kelime-service-no-internet
+  namespace: game
+spec:
+  podSelector:
+    matchLabels: { app: kelime-service }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - to:
+        - podSelector:
+            matchLabels: { cnpg.io/cluster: pg-game }
+      ports:
+        - { port: 5432, protocol: TCP }
+    - to:
+        - podSelector:
+            matchLabels: { app: redis }
+      ports:
+        - { port: 6379, protocol: TCP }
