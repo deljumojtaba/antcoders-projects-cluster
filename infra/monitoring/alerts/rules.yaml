@@ -46,6 +46,8 @@ groups:
             type: gt
             params:
             - 10
+  # WebSockets are left out: a game's /ws connection (PvP queue) stays open for
+  # seconds to minutes and would read as a slow request.
   - uid: site-slow
     title: Site slow
     condition: C
@@ -65,7 +67,7 @@ groups:
       datasourceUid: VictoriaMetrics
       model:
         refId: A
-        expr: histogram_quantile(0.95, sum by (le, site) (label_replace(rate(traefik_router_request_duration_seconds_bucket[5m]), "site", "$1", "router", "[a-z]+-(.+)-[0-9a-f]{20}@kubernetescrd")))
+        expr: histogram_quantile(0.95, sum by (le, site) (label_replace(rate(traefik_router_request_duration_seconds_bucket{protocol!="websocket"}[5m]), "site", "$1", "router", "[a-z]+-(.+)-[0-9a-f]{20}@kubernetescrd")))
         instant: true
         range: false
         datasource:
